@@ -8,13 +8,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install mingw-w64
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 gcc-mingw-w64-i686
+      - name: Install mingw-w64 (64-bit + 32-bit)
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 binutils-mingw-w64-x86-64 binutils-mingw-w64-i686 make
       - name: Build
         run: make all
       - uses: actions/upload-artifact@v4
         with:
           name: WindowLookChanger
           path: |
+            WindowLookChangerSetup64.exe
+            WindowLookChangerSetup32.exe
             WindowLookChanger64.exe
             WindowLookChanger32.exe
