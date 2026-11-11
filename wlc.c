@@ -21,6 +21,8 @@ static void LoadConfig(void) {
     g_hasCol = RdI(L"hascolor", 0); g_col = (COLORREF)RdI(L"color", (int)RGB(0,120,215));
     g_dark = RdI(L"dark", 1); g_mgrTop = RdI(L"top", 0);
     g_iconOver = RdI(L"icons", -1); if (g_iconOver < -1 || g_iconOver > 4) g_iconOver = -1;
+    g_presetAll = RdI(L"presetall", 0); if (g_presetAll < 0 || g_presetAll > 25) g_presetAll = 0;
+    g_showPin = RdI(L"showpin", 1); g_showShade = RdI(L"showshade", 1); g_showSnap = RdI(L"showsnap", 1); RecalcHide();
     g_auto = RdI(L"auto", RegDw(L"AutoSkin", 1)); g_sysApply = RdI(L"sys", RegDw(L"ApplySystem", 1)); g_bg = RdI(L"bg", 0);
     GetPrivateProfileStringW(L"cfg", L"exclude", L";explorer.exe;", g_exclude, 500, g_ini);
     if (g_exclude[0] != L';') wcscpy(g_exclude, L";explorer.exe;");
@@ -72,6 +74,7 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE hp, LPSTR cmd, int show) {
     h = CreateWindowExW(0, L"WLCMain", APP_TITLE, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, g_winX, g_winY, g_winW, g_winH, NULL, NULL, hi, NULL);
     if (!h) { MessageBoxW(NULL, L"Could not create window", APP_TITLE, MB_ICONERROR); return 1; }
     if (bg) g_bg = 1;
+    InstallHooks();
     if (g_mgrTop) SetMgrTop();
     if (g_sysApply) ApplySystemLook(CurTheme());
     if (imp[0]) ImportThemeFile(imp);

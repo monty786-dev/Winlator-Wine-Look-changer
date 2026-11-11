@@ -138,6 +138,126 @@ static void DrawGlyph(HDC dc, int id, const RECT *rc, int style, COLORREF c, con
     if (fill) DeleteObject(hb);
 }
 
+
+/* ---- 25 icon presets per button: preset = variant(0..4) * 5 + frame(0..4) + 1 ----
+   variants are 5 different glyph designs per button; frames are: none, ring, filled disc,
+   rounded outline, filled rounded square (glyph colour inverts on filled frames).          */
+static POINT Pt(int x, int y) { POINT p; p.x = x; p.y = y; return p; }
+static void Ln(HDC dc, int x1, int y1, int x2, int y2) { MoveToEx(dc, x1, y1, NULL); LineTo(dc, x2, y2); }
+static void FillR(HDC dc, int x1, int y1, int x2, int y2, COLORREF c) {
+    int t; if (x1 > x2) { t = x1; x1 = x2; x2 = t; } if (y1 > y2) { t = y1; y1 = y2; y2 = t; }
+    FillRectC(dc, x1, y1, x2 + 1, y2 + 1, c);
+}
+static void DrawShape(HDC dc, int id, int v, int cx, int cy, int q, COLORREF col, const PState *s, COLORREF pinC) {
+    HPEN pen = CreatePen(PS_SOLID, 2, col), op; HBRUSH br = CreateSolidBrush(col), nb = (HBRUSH)GetStockObject(NULL_BRUSH), ob;
+    POINT p[10]; int mx = (id == BT_SNAPR) ? -1 : 1, sg = s->shaded ? -1 : 1, i, h = q / 2;
+    static const int SX[10] = { 0, 24, 95, 38, 59, 0, -59, -38, -95, -24 }, SY[10] = { -100, -32, -31, 12, 81, 40, 81, 12, -31, -32 };
+    op = (HPEN)SelectObject(dc, pen); ob = (HBRUSH)SelectObject(dc, nb);
+#define X_(d) (cx + mx * (d))
+#define Y_(d) (cy + sg * (d))
+    switch (id) {
+    case BT_MIN:
+        switch (v) {
+        case 0: Ln(dc, cx - q, cy + h, cx + q + 1, cy + h); break;
+        case 1: p[0] = Pt(cx - q, cy - h); p[1] = Pt(cx, cy + h); p[2] = Pt(cx + q, cy - h); Polyline(dc, p, 3); break;
+        case 2: SelectObject(dc, br); p[0] = Pt(cx - q, cy - h); p[1] = Pt(cx + q, cy - h); p[2] = Pt(cx, cy + h + 1); Polygon(dc, p, 3); break;
+        case 3: FillR(dc, cx - q, cy + h - 1, cx + q, cy + h + 1, col); break;
+        default: Ln(dc, cx, cy - q, cx, cy + q - 1); p[0] = Pt(cx - h - 1, cy + h); p[1] = Pt(cx, cy + q); p[2] = Pt(cx + h + 1, cy + h); Polyline(dc, p, 3); break;
+        } break;
+    case BT_MAX:
+        if (!s->maxed) switch (v) {
+            case 0: Rectangle(dc, cx - q, cy - q, cx + q + 1, cy + q + 1); break;
+            case 1: Rectangle(dc, cx - q, cy - q, cx + q + 1, cy + q + 1); FillR(dc, cx - q, cy - q, cx + q, cy - q + 2, col); break;
+            case 2: p[0] = Pt(cx - q, cy + h); p[1] = Pt(cx, cy - h); p[2] = Pt(cx + q, cy + h); Polyline(dc, p, 3); break;
+            case 3: p[0] = Pt(cx, cy - q); p[1] = Pt(cx + q, cy); p[2] = Pt(cx, cy + q); p[3] = Pt(cx - q, cy); Polygon(dc, p, 4); break;
+            default: { int l = h + 1;
+                p[0] = Pt(cx - q, cy - q + l); p[1] = Pt(cx - q, cy - q); p[2] = Pt(cx - q + l, cy - q); Polyline(dc, p, 3);
+                p[0] = Pt(cx + q - l, cy - q); p[1] = Pt(cx + q, cy - q); p[2] = Pt(cx + q, cy - q + l); Polyline(dc, p, 3);
+                p[0] = Pt(cx - q, cy + q - l); p[1] = Pt(cx - q, cy + q); p[2] = Pt(cx - q + l, cy + q); Polyline(dc, p, 3);
+                p[0] = Pt(cx + q - l, cy + q); p[1] = Pt(cx + q, cy + q); p[2] = Pt(cx + q, cy + q - l); Polyline(dc, p, 3); } break;
+        } else switch (v) {   /* restore */
+            case 0: case 1:
+                p[0] = Pt(cx - q + 3, cy - q + 3); p[1] = Pt(cx - q + 3, cy - q); p[2] = Pt(cx + q, cy - q); p[3] = Pt(cx + q, cy + q - 3); p[4] = Pt(cx + q - 3, cy + q - 3);
+                Polyline(dc, p, 5); Rectangle(dc, cx - q, cy - q + 3, cx + q - 2, cy + q + 1);
+                if (v == 1) FillR(dc, cx - q, cy - q + 3, cx + q - 3, cy - q + 4, col); break;
+            case 2: p[0] = Pt(cx - q, cy - h); p[1] = Pt(cx, cy + h); p[2] = Pt(cx + q, cy - h); Polyline(dc, p, 3); break;
+            case 3:
+                p[0] = Pt(cx - q, cy - 1); p[1] = Pt(cx - 1, cy - 1); p[2] = Pt(cx - 1, cy - q); Polyline(dc, p, 3);
+                p[0] = Pt(cx + 1, cy - q); p[1] = Pt(cx + 1, cy - 1); p[2] = Pt(cx + q, cy - 1); Polyline(dc, p, 3);
+                p[0] = Pt(cx - q, cy + 1); p[1] = Pt(cx - 1, cy + 1); p[2] = Pt(cx - 1, cy + q); Polyline(dc, p, 3);
+                p[0] = Pt(cx + q, cy + 1); p[1] = Pt(cx + 1, cy + 1); p[2] = Pt(cx + 1, cy + q); Polyline(dc, p, 3); break;
+            default: Rectangle(dc, cx - q, cy - q, cx + q + 1, cy + q + 1); FillR(dc, cx - h, cy - h, cx + h, cy + h, col); break;
+        } break;
+    case BT_CLOSE:
+        switch (v) {
+        case 0: Ln(dc, cx - q, cy - q, cx + q + 1, cy + q + 1); Ln(dc, cx + q, cy - q, cx - q - 1, cy + q + 1); break;
+        case 1: Ln(dc, cx - q, cy, cx + q + 1, cy); Ln(dc, cx, cy - q, cx, cy + q + 1); break;
+        case 2: Ln(dc, cx - q + 1, cy - q + 1, cx + q, cy + q); Ln(dc, cx + q - 1, cy - q + 1, cx - q, cy + q);
+                Ln(dc, cx - q, cy, cx + q + 1, cy); Ln(dc, cx, cy - q, cx, cy + q + 1); break;
+        case 3: Ln(dc, cx - q, cy - q, cx - 1, cy - 1); Ln(dc, cx + q, cy - q, cx + 1, cy - 1);
+                Ln(dc, cx - q, cy + q, cx - 1, cy + 1); Ln(dc, cx + q, cy + q, cx + 1, cy + 1); break;
+        default: SelectObject(dc, br);
+                Ellipse(dc, cx - q - 1, cy - q - 1, cx - q + 2, cy - q + 2); Ellipse(dc, cx + q - 1, cy - q - 1, cx + q + 2, cy - q + 2);
+                Ellipse(dc, cx - q - 1, cy + q - 1, cx - q + 2, cy + q + 2); Ellipse(dc, cx + q - 1, cy + q - 1, cx + q + 2, cy + q + 2);
+                Ellipse(dc, cx - 1, cy - 1, cx + 2, cy + 2); break;
+        } break;
+    case BT_SHADE:
+        switch (v) {
+        case 0: Ln(dc, cx - q, Y_(-q), cx + q + 1, Y_(-q)); SelectObject(dc, br);
+                p[0] = Pt(cx - q, Y_(q - 1)); p[1] = Pt(cx + q, Y_(q - 1)); p[2] = Pt(cx, Y_(-h)); Polygon(dc, p, 3); break;
+        case 1: p[0] = Pt(cx - q, Y_(h)); p[1] = Pt(cx, Y_(-h)); p[2] = Pt(cx + q, Y_(h)); Polyline(dc, p, 3); break;
+        case 2: SelectObject(dc, br); p[0] = Pt(cx - q, Y_(h)); p[1] = Pt(cx + q, Y_(h)); p[2] = Pt(cx, Y_(-h - 1)); Polygon(dc, p, 3); break;
+        case 3: p[0] = Pt(cx - q, Y_(0)); p[1] = Pt(cx, Y_(-q + 1)); p[2] = Pt(cx + q, Y_(0)); Polyline(dc, p, 3);
+                p[0] = Pt(cx - q, Y_(q)); p[1] = Pt(cx, Y_(1)); p[2] = Pt(cx + q, Y_(q)); Polyline(dc, p, 3); break;
+        default: if (!s->shaded) { Rectangle(dc, cx - q, cy - q, cx + q + 1, cy + q + 1); FillR(dc, cx - q, cy - q, cx + q, cy - q + 2, col); }
+                 else Rectangle(dc, cx - q, cy - 2, cx + q + 1, cy + 3); break;
+        } break;
+    case BT_PIN:
+        if (s->pinned) SelectObject(dc, br);
+        switch (v) {
+        case 0: Ellipse(dc, cx - q + 1, cy - q, cx + q, cy + 1); Ln(dc, cx - q, cy + 1, cx + q + 1, cy + 1); Ln(dc, cx, cy + 1, cx, cy + q + 2); break;
+        case 1: Rectangle(dc, cx - q, cy - q, cx + q + 1, cy - q + 3);
+                p[0] = Pt(cx - q + 2, cy - q + 3); p[1] = Pt(cx + q - 2, cy - q + 3); p[2] = Pt(cx + 1, cy + 1); p[3] = Pt(cx - 1, cy + 1); Polygon(dc, p, 4);
+                Ln(dc, cx, cy + 1, cx, cy + q + 2); break;
+        case 2: SelectObject(dc, br); Ellipse(dc, cx - q, cy - q, cx + q + 1, cy + q + 1); break;
+        case 3: Ln(dc, cx - q, cy - q, cx + q + 1, cy - q); Ln(dc, cx, cy - q + 2, cx, cy + q + 1);
+                p[0] = Pt(cx - q + 1, cy); p[1] = Pt(cx, cy - q + 3); p[2] = Pt(cx + q - 1, cy); Polyline(dc, p, 3); break;
+        default: for (i = 0; i < 10; i++) p[i] = Pt(cx + SX[i] * (q + 2) / 100, cy + SY[i] * (q + 2) / 100 + 1); Polygon(dc, p, 10); break;
+        } break;
+    case BT_SNAPL: case BT_SNAPR:
+        switch (v) {
+        case 0: Rectangle(dc, cx - q - 1, cy - q, cx + q + 2, cy + q + 1); FillR(dc, X_(-q), cy - q + 1, X_(0), cy + q - 1, col); break;
+        case 1: Ln(dc, X_(q + 1), cy, X_(-q), cy); p[0] = Pt(X_(-q + 3), cy - 3); p[1] = Pt(X_(-q), cy); p[2] = Pt(X_(-q + 3), cy + 3); Polyline(dc, p, 3); break;
+        case 2: p[0] = Pt(X_(h), cy - q); p[1] = Pt(X_(-h), cy); p[2] = Pt(X_(h), cy + q); Polyline(dc, p, 3); break;
+        case 3: Rectangle(dc, cx - q - 1, cy - q, cx + q + 2, cy + q + 1); FillR(dc, X_(-q), cy - q + 1, X_(-q + 2), cy + q - 1, col); break;
+        default: SelectObject(dc, br); p[0] = Pt(X_(q), cy - q); p[1] = Pt(X_(-q), cy); p[2] = Pt(X_(q), cy + q); Polygon(dc, p, 3); break;
+        } break;
+    }
+#undef X_
+#undef Y_
+    SelectObject(dc, ob); SelectObject(dc, op); DeleteObject(pen); DeleteObject(br);
+}
+
+static void DrawPresetGlyph(HDC dc, int id, const RECT *rc, int preset, COLORREF col, const PState *s, COLORREF pinC) {
+    int v = (preset - 1) / 5, f = (preset - 1) % 5, cx = (rc->left + rc->right) / 2, cy = (rc->top + rc->bottom) / 2;
+    int w = rc->right - rc->left, h = rc->bottom - rc->top, rad = (h < w ? h : w) / 2 - 1, q;
+    COLORREF gc = (id == BT_PIN && s->pinned) ? pinC : col, inner = gc;
+    if (rad > 10) rad = 10;
+    q = f ? (rad >= 9 ? 4 : 3) : 5;
+    if (f == 1 || f == 3) {
+        HPEN p = CreatePen(PS_SOLID, 1, gc); HPEN op = (HPEN)SelectObject(dc, p); HBRUSH ob = (HBRUSH)SelectObject(dc, GetStockObject(NULL_BRUSH));
+        if (f == 1) Ellipse(dc, cx - rad, cy - rad, cx + rad + 1, cy + rad + 1); else RoundRect(dc, cx - rad, cy - rad, cx + rad + 1, cy + rad + 1, 6, 6);
+        SelectObject(dc, ob); SelectObject(dc, op); DeleteObject(p);
+    } else if (f == 2 || f == 4) {
+        HPEN p = CreatePen(PS_SOLID, 1, gc); HBRUSH b = CreateSolidBrush(gc);
+        HPEN op = (HPEN)SelectObject(dc, p); HBRUSH ob = (HBRUSH)SelectObject(dc, b);
+        if (f == 2) Ellipse(dc, cx - rad, cy - rad, cx + rad + 1, cy + rad + 1); else RoundRect(dc, cx - rad, cy - rad, cx + rad + 1, cy + rad + 1, 6, 6);
+        SelectObject(dc, ob); SelectObject(dc, op); DeleteObject(b); DeleteObject(p);
+        inner = Lum(gc) < 150 ? W_ : K_;
+    }
+    DrawShape(dc, id, v, cx, cy, q, inner, s, pinC);
+}
+
 static BOOL DrawCustomIcon(HDC dc, const Theme *t, int id, const RECT *rc, const PState *s) {
     int slot = id; Img *im;
     if (id == BT_MAX && s->maxed && t->icon[ICN_RESTORE][0]) slot = ICN_RESTORE;
@@ -180,7 +300,12 @@ static void PaintSkin(HDC dc, int w, int h, const Theme *t, const PState *s, HFO
         if (t->gstyle != 2) DrawBtnFace(dc, t, id, &br[id], st, s->active);
         gc = t->glyph;
         if (id == BT_CLOSE && (st || (t->closeFace && t->closeFace != t->bFace))) gc = t->closeGlyph;
-        if (!DrawCustomIcon(dc, t, id, &br[id], s)) DrawGlyph(dc, id, &br[id], t->gstyle, gc, s, st != 0, t->pin);
+        if (!DrawCustomIcon(dc, t, id, &br[id], s)) {
+            int slot = (id == BT_MAX && s->maxed) ? ICN_RESTORE : id, pr = t->preset[slot];
+            if (!pr && slot == ICN_RESTORE) pr = t->preset[BT_MAX];
+            if (pr > 0) DrawPresetGlyph(dc, id, &br[id], pr, gc, s, t->pin);
+            else DrawGlyph(dc, id, &br[id], t->gstyle, gc, s, st != 0, t->pin);
+        }
     }
 }
 
@@ -209,7 +334,7 @@ static void PaintThemePreview(HDC dc, RECT r, const Theme *t) {
     ob = (HBITMAP)SelectObject(m, bm); ob2 = (HBITMAP)SelectObject(m2, bm2);
     FillRectC(m, 0, 0, w, h, g_dark ? RGB(18,18,18) : RGB(190,196,208));
     memset(&s, 0, sizeof s); s.title = L"Notepad - Preview"; s.icon = LoadIconW(NULL, IDI_APPLICATION);
-    s.active = TRUE; s.hot = -1; s.down = -1; s.pinned = TRUE;
+    s.active = TRUE; s.hot = -1; s.down = -1; s.pinned = TRUE; s.hide = g_hideG;
     f = MakeTitleFont(t); PaintSkin(m2, ww, H, t, &s, f); DeleteObject(f);
     BitBlt(m, mx, my, ww, H, m2, 0, 0, SRCCOPY);
     y0 = my + H; mh = t->menuH; if (mh > 24) mh = 24;

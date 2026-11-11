@@ -63,16 +63,48 @@ static void SkinRegion(Skin *e, int w) {
         if (rg && !SetWindowRgn(e->over, rg, TRUE)) DeleteObject(rg);
     } else SetWindowRgn(e->over, NULL, TRUE);
 }
+static int HideOf(const Skin *e) { return e->hide | g_hideG; }
+static void SkinPlace(Skin *e) {      /* snap the overlay exactly onto its window right now */
+    RECT tr;
+    if (e->over && GetWindowRect(e->target, &tr))
+        SetWindowPos(e->over, NULL, tr.left, tr.top - e->H, tr.right - tr.left, e->H, SWP_NOACTIVATE | SWP_NOZORDER);
+}
 static void SkinMove(Skin *e, int x, int y, int w, int h) {
     SetWindowPos(e->target, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    SkinPlace(e);
 }
 
 /* Z-order fix: keep the overlay directly above its window, whatever window was just raised. */
+static HWND VisPrev(HWND w) {          /* nearest visible window above w (invisible ones cannot be restacked against) */
+    HWND p = GetWindow(w, GW_HWNDPREV);
+    while (p && (!IsWindowVisible(p) || p == g_tip)) p = GetWindow(p, GW_HWNDPREV);
+    return p;
+}
+static BOOL IsSkinWnd(HWND p, const Skin *except) {
+    int i; for (i = 0; i < g_nskins; i++) if (g_skins[i] != except && (g_skins[i]->over == p || g_skins[i]->target == p)) return TRUE;
+    return FALSE;
+}
+static void RaisePair(Skin *e) {       /* put window + its bar on top of everything (below topmost unless pinned) */
+    HWND ins = e->pin ? HWND_TOPMOST : HWND_TOP;
+    SetWindowPos(e->target, ins, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos(e->over, ins, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+/* Invariant kept every tick:  [ ...above windows..., bar, window, ...below... ]  and the focused
+   window's pair is above the pair of every other skinned window.                                  */
 static void SkinZ(Skin *e) {
-    HWND prev = GetWindow(e->target, GW_HWNDPREV);
-    if (prev == e->over) return;
-    {   BOOL top = (GetWindowLongW(e->target, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-        SetWindowPos(e->over, prev ? prev : (top ? HWND_TOPMOST : HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
+    HWND prev = VisPrev(e->target);
+    if (prev != e->over) {
+        BOOL top = (GetWindowLongW(e->target, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+        SetWindowPos(e->over, prev ? prev : (top ? HWND_TOPMOST : HWND_TOP), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        if (VisPrev(e->target) != e->over) {            /* restack was ignored: raise the whole pair instead */
+            if (!prev) RaisePair(e);
+            else { SetWindowPos(e->target, e->over, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
+        }
+    }
+    if (e->active) {                                   /* focused pair must be above other skinned pairs */
+        HWND above = VisPrev(e->over);
+        if (above && IsSkinWnd(above, e) && !(GetWindowLongW(above, GWL_EXSTYLE) & WS_EX_TOPMOST && !e->pin)) RaisePair(e);
+    }
 }
 static void SkinRaise(Skin *e) {
     if (e->shaded) { SetWindowPos(e->over, e->pin ? HWND_TOPMOST : HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); return; }
@@ -131,14 +163,14 @@ static void SkinPress(Skin *e, int id) {
 
 static int ButtonAt(const Skin *e, int w, int x, int y) {
     RECT br[BT_COUNT]; int vis[BT_COUNT], i, tl, tr; POINT p; p.x = x; p.y = y;
-    LayoutBtns(CurTheme(), w, br, vis, &tl, &tr, e->hide);
+    LayoutBtns(CurTheme(), w, br, vis, &tl, &tr, HideOf(e));
     for (i = 0; i < BT_COUNT; i++) if (vis[i] && PtInRect(&br[i], p)) return i;
     return -1;
 }
 static void SkinPaintDC(Skin *e, HDC dc, int w, int h) {
     PState s; memset(&s, 0, sizeof s);
     s.title = e->title; s.icon = e->icon ? e->icon : e->exeIcon; s.active = e->active; s.hot = e->hot; s.down = e->down;
-    s.maxed = (e->state == 1); s.pinned = e->pin; s.shaded = e->shaded; s.hide = e->hide;
+    s.maxed = (e->state == 1); s.pinned = e->pin; s.shaded = e->shaded; s.hide = HideOf(e);
     PaintSkin(dc, w, h, CurTheme(), &s, g_ovFont ? g_ovFont : (HFONT)GetStockObject(DEFAULT_GUI_FONT));
 }
 
@@ -170,9 +202,14 @@ static LRESULT CALLBACK SkinProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEMOVE: {
         int x = (short)LOWORD(l), y = (short)HIWORD(l), b; RECT rc; GetClientRect(h, &rc);
         if (e->dragging && (w & MK_LBUTTON)) {
-            POINT p; int ny; GetCursorPos(&p);
-            ny = e->dragRect.top + p.y - e->dragStart.y; if (ny < e->H) ny = e->H;
-            SetWindowPos(e->target, NULL, e->dragRect.left + p.x - e->dragStart.x, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            POINT p; int nx, ny; HDWP hd; const UINT fl = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+            GetCursorPos(&p);
+            nx = e->dragRect.left + p.x - e->dragStart.x; ny = e->dragRect.top + p.y - e->dragStart.y; if (ny < e->H) ny = e->H;
+            hd = BeginDeferWindowPos(2);
+            if (hd) hd = DeferWindowPos(hd, e->target, NULL, nx, ny, 0, 0, fl);
+            if (hd) hd = DeferWindowPos(hd, e->over, NULL, nx, ny - e->H, 0, 0, fl);
+            if (hd) EndDeferWindowPos(hd);
+            else { SetWindowPos(e->target, NULL, nx, ny, 0, 0, fl); SetWindowPos(e->over, NULL, nx, ny - e->H, 0, 0, fl); }
             return 0;
         }
         b = ButtonAt(e, rc.right, x, y);
@@ -190,7 +227,7 @@ static LRESULT CALLBACK SkinProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             KillTimer(h, TM_TIP);
             if (e->hot >= 0) {
                 RECT br[BT_COUNT], rc; int vis[BT_COUNT], tl, tr; POINT p;
-                GetClientRect(h, &rc); LayoutBtns(CurTheme(), rc.right, br, vis, &tl, &tr, e->hide);
+                GetClientRect(h, &rc); LayoutBtns(CurTheme(), rc.right, br, vis, &tl, &tr, HideOf(e));
                 p.x = br[e->hot].left; p.y = rc.bottom + 4; ClientToScreen(h, &p);
                 TipShow(BTN_TIPS[e->hot], p.x, p.y);
             }
@@ -295,15 +332,15 @@ static void SkinSync(Skin *e) {
     if (!GetWindowRect(e->target, &tr)) return;
     w = tr.right - tr.left; x = tr.left; y = tr.top - e->H;
     if (!IsWindowVisible(e->over)) { ShowWindow(e->over, SW_SHOWNOACTIVATE); InvalidateRect(e->over, NULL, FALSE); }
-    if (!GetWindowRect(e->over, &orc) || orc.left != x || orc.top != y || orc.right - orc.left != w || orc.bottom - orc.top != e->H) {
+    if (!e->dragging && (!GetWindowRect(e->over, &orc) || orc.left != x || orc.top != y || orc.right - orc.left != w || orc.bottom - orc.top != e->H)) {
         SetWindowPos(e->over, NULL, x, y, w, e->H, SWP_NOACTIVATE | SWP_NOZORDER);
-        InvalidateRect(e->over, NULL, FALSE);
+        if (!GetWindowRect(e->over, &orc) || orc.right - orc.left != w) InvalidateRect(e->over, NULL, FALSE);
     }
     if (e->lastW != w || e->lastH != e->H) { SkinRegion(e, w); e->lastW = w; e->lastH = e->H; }
-    SkinZ(e);
     fg = GetForegroundWindow();
     act = (fg == e->target || fg == e->over || (fg && GetWindow(fg, GW_OWNER) == e->target));
     if (act != e->active) { e->active = act; InvalidateRect(e->over, NULL, FALSE); }
+    if (!e->dragging) SkinZ(e);
     if (e->pin) {          /* pin: keep topmost; re-assert once whenever focus moves to another window */
         if (!(GetWindowLongW(e->target, GWL_EXSTYLE) & WS_EX_TOPMOST) || (fg != e->lastFg && now - e->pinTick > 150)) {
             SetWindowPos(e->target, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -318,6 +355,13 @@ static void SkinSync(Skin *e) {
     }
 }
 static void SyncAll(void) { int i; for (i = g_nskins - 1; i >= 0; i--) if (i < g_nskins) SkinSync(g_skins[i]); }
+static HWINEVENTHOOK g_hook;
+static void CALLBACK WinEvProc(HWINEVENTHOOK hk, DWORD ev, HWND hw, LONG o, LONG c, DWORD th, DWORD tm) {
+    (void)hk; (void)ev; (void)hw; (void)o; (void)c; (void)th; (void)tm; SyncAll();
+}
+static void InstallHooks(void) {
+    g_hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, NULL, WinEvProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+}
 static void SkinRemoveAll(void) { while (g_nskins > 0) SkinDestroy(g_skins[g_nskins - 1], TRUE); }
 
 /* ---- process names (cached) + auto-skin of every running and future window ---- */

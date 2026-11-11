@@ -27,14 +27,10 @@ enum { TM_REFRESH = 1, TM_SYNC, TM_SCAN, TM_TIP };
 enum { BT_CLOSE, BT_MAX, BT_MIN, BT_SNAPR, BT_SNAPL, BT_PIN, BT_SHADE, BT_COUNT };
 #define ICN_RESTORE BT_COUNT
 #define NICON (BT_COUNT + 1)
-enum { ACT_SKIN = 1, ACT_UNSKIN, ACT_SHADE, ACT_TOP, ACT_CLOSE, ACT_LEFT, ACT_RIGHT,
-       ACT_MIN, ACT_MAX, ACT_KILL, ACT_NEVER, ACT_SKINALL, ACT_UNSKINALL };
-enum { IDC_TAB0 = 101, IDC_TAB1, IDC_TAB2, IDC_TAB3, IDC_SEARCH, IDC_REFRESH, IDC_LIST,
-       IDC_RUN, IDC_BROWSE, IDC_GO, IDC_GAL, IDC_ISTYLE, IDC_COLOR, IDC_RESET,
+enum { IDC_TAB0 = 101, IDC_TAB1, IDC_TAB2, IDC_ISTYLE, IDC_PRESETS, IDC_COLOR, IDC_RESET, IDC_GAL,
        IDC_LABNAME, IDC_LABFROM, IDC_PROPS, IDC_LSAVE, IDC_LUPD, IDC_LDEL, IDC_LREV,
-       IDC_O_AUTO, IDC_O_SYS, IDC_O_BG, IDC_O_TOP, IDC_O_DARK,
-       IDC_O_RESTORE, IDC_O_UNSKIN, IDC_O_CLEAR, IDC_O_REAPPLY, IDC_STATUS, IDC_ACT = 300 };
-#define CM_BASE 500
+       IDC_O_AUTO = 140, IDC_O_SYS, IDC_O_PIN, IDC_O_SHADE, IDC_O_SNAP, IDC_O_BG, IDC_O_TOP, IDC_O_DARK,
+       IDC_O_RUN = 160, IDC_O_NEVER, IDC_O_CLEAR, IDC_O_UNSKIN, IDC_O_REAPPLY, IDC_O_RESTORE, IDC_STATUS = 180 };
 
 #define W_ RGB(255,255,255)
 #define K_ RGB(0,0,0)
@@ -59,6 +55,7 @@ typedef struct {
     COLORREF bFace, bHover, bPress, bBorder, glyph, closeFace, closeHover, closeGlyph, pin;
     COLORREF sWindow, sFace, sText, sHilite, sHiliteText, sShadow, sLight, sScroll, sWork;
     int scrollW, menuH, borderW;
+    int preset[NICON];            /* per button: 0 = classic icon style, 1..25 = icon preset */
     wchar_t icon[NICON][MAX_PATH];
 } Theme;
 
@@ -67,7 +64,12 @@ static HINSTANCE g_inst;
 static HWND g_main, g_status;
 static HFONT g_fUi, g_fSmall, g_ovFont;
 static int  g_dark = 1, g_mgrTop = 0, g_auto = 1, g_sysApply = 1, g_bg = 0;
-static int  g_themeIdx = 0, g_iconOver = -1, g_hasCol = 0;
+static int  g_themeIdx = 0, g_iconOver = -1, g_hasCol = 0, g_presetAll = 0;
+static int  g_showPin = 1, g_showShade = 1, g_showSnap = 1, g_hideG = 0;   /* optional buttons for every title bar */
+static void RecalcHide(void) {
+    g_hideG = (g_showPin ? 0 : (1 << BT_PIN)) | (g_showShade ? 0 : (1 << BT_SHADE)) |
+              (g_showSnap ? 0 : ((1 << BT_SNAPL) | (1 << BT_SNAPR)));
+}
 static COLORREF g_col = RGB(0,120,215);
 static Theme g_themes[MAXTHEME];
 static int   g_nthemes, g_nbuiltin;
@@ -80,7 +82,6 @@ static wchar_t g_exclude[512] = L";explorer.exe;";
 static void SetStatus(const wchar_t *fmt, ...);
 static void ApplyTheme(int idx);
 static void ApplyLookAll(void);
-static void Refresh(BOOL force);
 static const Theme *CurTheme(void) { return &g_eff; }
 
 /* ---- helpers ---- */

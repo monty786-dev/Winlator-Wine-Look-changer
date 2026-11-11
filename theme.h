@@ -187,6 +187,9 @@ static void ThemeSave(const Theme *t, const wchar_t *file) {
     for (i = 0; i < NICON; i++) {
         _snwprintf(k, 15, L"icon%d", i); k[15] = 0;
         WritePrivateProfileStringW(L"theme", k, t->icon[i][0] ? t->icon[i] : NULL, file);
+        _snwprintf(k, 15, L"preset%d", i); k[15] = 0;
+        if (t->preset[i]) { wchar_t pb[16]; _snwprintf(pb, 15, L"%d", t->preset[i]); pb[15] = 0; WritePrivateProfileStringW(L"theme", k, pb, file); }
+        else WritePrivateProfileStringW(L"theme", k, NULL, file);
     }
 }
 static BOOL ThemeLoad(Theme *t, const wchar_t *file) {
@@ -201,6 +204,9 @@ static BOOL ThemeLoad(Theme *t, const wchar_t *file) {
     for (i = 0; i < NICON; i++) {
         _snwprintf(k, 15, L"icon%d", i); k[15] = 0;
         GetPrivateProfileStringW(L"theme", k, L"", t->icon[i], MAX_PATH, file);
+        _snwprintf(k, 15, L"preset%d", i); k[15] = 0;
+        t->preset[i] = (int)GetPrivateProfileIntW(L"theme", k, 0, file);
+        if (t->preset[i] < 0 || t->preset[i] > 25) t->preset[i] = 0;
     }
     t->custom = 1;
     ThemeFixup(t);
@@ -242,6 +248,7 @@ static void RebuildEff(void) {
     if (g_themeIdx < 0 || g_themeIdx >= g_nthemes) g_themeIdx = 0;
     g_eff = g_themes[g_themeIdx]; t = &g_eff;
     if (g_iconOver >= 0 && g_iconOver <= 4) t->gstyle = g_iconOver;
+    if (g_presetAll > 0 && g_presetAll <= 25) { int pi; for (pi = 0; pi < NICON; pi++) t->preset[pi] = g_presetAll; }
     if (g_hasCol) {
         int dk, grad = (t->tTop != t->tBot); c = g_col; dk = Lum(c) < 150;
         t->tBot = c; t->tTop = grad ? Blend(c, W_, 25) : c;
