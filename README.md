@@ -4,6 +4,10 @@ Star / support: https://github.com/monty786-dev/Winlator-Wine-Look-changer
 
 Plain Win32 C, built with mingw-w64 (no .NET / WPF / UWP / DWM).
 
+After Costomization
+<img width="2400" height="1080" alt="Screenshot_2026-11-27-17-47-46-927_com winlator" src="https://github.com/user-attachments/assets/67b6577a-d5f7-4bd8-9abf-be400b02a64b" />
+This is also winlator in app's desktop mode after some settings changes.
+
 | Program | What it is |
 |---|---|
 | `MontySetup64.exe` / `MontySetup32.exe` | Installer (both apps embedded). Run once, press **Install / Update**. |
